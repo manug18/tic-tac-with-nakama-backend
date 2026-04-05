@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "target": "es5",
+    "lib": ["es5", "es2015.promise"],
+    "strict": false,
+    "noImplicitAny": false,
+    "module": "commonjs",
+    "outDir": "dist",
+    "typeRoots": []
+  },
+  "include": ["modules/**/*.ts", "types/**/*.d.ts"]
+}

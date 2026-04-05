@@ -1,0 +1,4 @@
+# Nakama custom image that bakes in the compiled JS module
+# Run after: cd nakama && npm ci && npm run build
+FROM heroiclabs/nakama:3.22.0
+COPY nakama/data/modules/tictactoe.js /nakama/data/modules/tictactoe.js

@@ -1,0 +1,69 @@
+version: "3.8"
+
+services:
+  # ─── PostgreSQL (Nakama's storage backend) ─────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       nakama
+      POSTGRES_USER:     nakama
+      POSTGRES_PASSWORD: localpassword
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nakama -d nakama"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─── Nakama server ──────────────────────────────────────────────────────────
+  nakama:
+    image: heroiclabs/nakama:3.22.0
+    platform: linux/amd64
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint:
+      - "/bin/sh"
+      - "-ecx"
+      - |
+        /nakama/nakama migrate up \
+          --database.address nakama:localpassword@postgres:5432/nakama &&
+        exec /nakama/nakama \
+          --name tictactoe-nakama \
+          --database.address nakama:localpassword@postgres:5432/nakama \
+          --runtime.js_entrypoint "tictactoe.js" \
+          --socket.server_key "defaultsocketkey" \
+          --console.username admin \
+          --console.password adminpassword \
+          --logger.level DEBUG
+    ports:
+      - "7349:7349"   # console
+      - "7350:7350"   # client API (REST + gRPC)
+      - "7351:7351"   # gRPC
+    volumes:
+      - ./nakama/data:/nakama/data
+    environment:
+      NAKAMA_RUNTIME_JS_ENTRYPOINT: tictactoe.js
+
+  # ─── React Frontend (dev – served by Vite) ─────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      VITE_NAKAMA_HOST:       localhost
+      VITE_NAKAMA_PORT:       "7350"
+      VITE_NAKAMA_USE_SSL:    "false"
+      VITE_NAKAMA_SERVER_KEY: defaultsocketkey
+
+volumes:
+  postgres_data:

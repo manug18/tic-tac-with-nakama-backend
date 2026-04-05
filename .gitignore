@@ -1,0 +1,16 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Build outputs
+nakama/data/modules/*.js
+frontend/dist/
+
+# Environment files (contain secrets)
+frontend/.env.local
+frontend/.env.production
+
+# IDE
+.DS_Store
+.vscode/
+*.swp

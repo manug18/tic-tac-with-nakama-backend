@@ -1,0 +1,41 @@
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  max-width: 360px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.cell {
+  aspect-ratio: 1;
+  border: 3px solid #444;
+  border-radius: 12px;
+  background: #1a1a2e;
+  font-size: clamp(2rem, 8vw, 4rem);
+  font-weight: 900;
+  cursor: default;
+  transition: background 0.15s, transform 0.1s;
+  color: #e0e0e0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.cell.x { color: #e94560; }
+.cell.o { color: #0f3460; color: #53c0f0; }
+
+.cell.clickable {
+  cursor: pointer;
+  border-color: #7c83fd;
+}
+
+.cell.clickable:hover {
+  background: #16213e;
+  transform: scale(1.04);
+}
+
+.cell:disabled {
+  cursor: default;
+}

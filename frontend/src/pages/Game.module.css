@@ -1,0 +1,151 @@
+.container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 16px;
+  gap: 16px;
+  background: #0d0d1a;
+  color: #e0e0e0;
+}
+
+.center {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  background: #0d0d1a;
+  color: #e0e0e0;
+  padding: 24px;
+}
+
+.heading {
+  margin: 0;
+  font-size: clamp(1.6rem, 6vw, 2.4rem);
+  font-weight: 900;
+  background: linear-gradient(135deg, #7c83fd, #e94560);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-align: center;
+}
+
+.sub {
+  color: #888;
+  font-size: 0.9rem;
+  text-align: center;
+  max-width: 300px;
+}
+
+.symbolRow {
+  display: flex;
+  gap: 24px;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.symbol.x { color: #e94560; }
+.symbol.o { color: #53c0f0; }
+
+.status {
+  font-size: 1rem;
+  color: #888;
+  margin: 0;
+}
+
+.myTurn {
+  color: #7c83fd;
+  font-weight: 700;
+}
+
+.result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.resultText {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin: 0;
+  color: #ffd700;
+}
+
+.homeBtn {
+  padding: 12px 28px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #7c83fd, #e94560);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.homeBtn:hover { opacity: 0.85; }
+
+.waiting {
+  font-size: 1.2rem;
+  color: #888;
+  text-align: center;
+}
+
+.roomBox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #16213e;
+  border: 2px solid #2a2a4a;
+  border-radius: 12px;
+  padding: 10px 16px;
+  max-width: 90vw;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.roomLabel {
+  font-size: 0.8rem;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.roomCode {
+  background: transparent;
+  color: #7c83fd;
+  font-size: 0.85rem;
+  word-break: break-all;
+  flex: 1;
+  min-width: 0;
+}
+
+.copyBtn {
+  padding: 6px 14px;
+  border: 1px solid #7c83fd;
+  border-radius: 8px;
+  background: transparent;
+  color: #7c83fd;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.copyBtn:hover { background: rgba(124,131,253,0.1); }
+
+.hint {
+  font-size: 0.85rem;
+  color: #555;
+  text-align: center;
+}
+
+.error {
+  color: #e94560;
+  font-size: 0.9rem;
+  text-align: center;
+}

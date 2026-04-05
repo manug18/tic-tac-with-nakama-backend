@@ -1,0 +1,376 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Tic-Tac-Toe – Nakama backend + React frontend on AWS ECS (Fargate)
+  Deploys:  VPC • Public subnets • ECS cluster • RDS PostgreSQL •
+            Nakama service (with custom JS module) • Frontend service •
+            Application Load Balancers for both services
+
+# ─────────────────────────────────────────────────────────────────────────────
+Parameters:
+  ProjectName:
+    Type:    String
+    Default: tictactoe
+
+  NakamaServerKey:
+    Type:    String
+    Default: defaultsocketkey
+    NoEcho:  true
+
+  DBPassword:
+    Type:    String
+    NoEcho:  true
+    Description: Password for the Nakama PostgreSQL database
+
+  NakamaImage:
+    Type:    String
+    Default: heroiclabs/nakama:3.22.0
+    Description: Nakama Docker image (public)
+
+  FrontendImage:
+    Type:    String
+    Description: >
+      Full ECR URI for the frontend image, e.g.
+      123456789.dkr.ecr.us-east-1.amazonaws.com/tictactoe-frontend:latest
+
+  CertificateArn:
+    Type:    String
+    Default: ""
+    Description: >
+      (Optional) ACM certificate ARN to enable HTTPS on the load balancers.
+      Leave empty for HTTP-only.
+
+# ─────────────────────────────────────────────────────────────────────────────
+Conditions:
+  HasCertificate: !Not [!Equals [!Ref CertificateArn, ""]]
+
+# ─────────────────────────────────────────────────────────────────────────────
+Resources:
+
+  # ── VPC & Networking ────────────────────────────────────────────────────────
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock:          10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport:   true
+      Tags: [{Key: Name, Value: !Sub "${ProjectName}-vpc"}]
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:             !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:               !Ref VPC
+      CidrBlock:           10.0.1.0/24
+      AvailabilityZone:    !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:               !Ref VPC
+      CidrBlock:           10.0.2.0/24
+      AvailabilityZone:    !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties: {VpcId: !Ref VPC}
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId:         !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId:            !Ref InternetGateway
+
+  SubnetRouteTableAssocA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: {SubnetId: !Ref PublicSubnetA, RouteTableId: !Ref RouteTable}
+
+  SubnetRouteTableAssocB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: {SubnetId: !Ref PublicSubnetB, RouteTableId: !Ref RouteTable}
+
+  # ── Security Groups ─────────────────────────────────────────────────────────
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB inbound
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 80,   ToPort: 80,   CidrIp: 0.0.0.0/0}
+        - {IpProtocol: tcp, FromPort: 443,  ToPort: 443,  CidrIp: 0.0.0.0/0}
+        - {IpProtocol: tcp, FromPort: 7350, ToPort: 7351, CidrIp: 0.0.0.0/0}
+
+  NakamaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Nakama tasks
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 7349, ToPort: 7351, SourceSecurityGroupId: !Ref ALBSecurityGroup}
+      SecurityGroupEgress:
+        - {IpProtocol: -1, CidrIp: 0.0.0.0/0}
+
+  FrontendSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Frontend tasks
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 80, ToPort: 80, SourceSecurityGroupId: !Ref ALBSecurityGroup}
+      SecurityGroupEgress:
+        - {IpProtocol: -1, CidrIp: 0.0.0.0/0}
+
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RDS Postgres
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 5432, ToPort: 5432, SourceSecurityGroupId: !Ref NakamaSecurityGroup}
+
+  # ── RDS PostgreSQL ──────────────────────────────────────────────────────────
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Nakama DB subnets
+      SubnetIds: [!Ref PublicSubnetA, !Ref PublicSubnetB]
+
+  NakamaDB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceClass:     db.t4g.micro
+      Engine:              postgres
+      EngineVersion:       "16"
+      DBName:              nakama
+      MasterUsername:      nakama
+      MasterUserPassword:  !Ref DBPassword
+      AllocatedStorage:    "20"
+      StorageType:         gp3
+      DBSubnetGroupName:   !Ref DBSubnetGroup
+      VPCSecurityGroups:   [!Ref DBSecurityGroup]
+      MultiAZ:             false
+      PubliclyAccessible:  false
+      DeletionProtection:  false
+
+  # ── ECS Cluster ─────────────────────────────────────────────────────────────
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${ProjectName}-cluster"
+
+  # ── IAM: ECS Task Execution Role ────────────────────────────────────────────
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-ecs-exec-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect:    Allow
+            Principal: {Service: ecs-tasks.amazonaws.com}
+            Action:    sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  # ── CloudWatch Log Groups ────────────────────────────────────────────────────
+  NakamaLogGroup:
+    Type:  AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:    !Sub "/ecs/${ProjectName}/nakama"
+      RetentionInDays: 7
+
+  FrontendLogGroup:
+    Type:  AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:    !Sub "/ecs/${ProjectName}/frontend"
+      RetentionInDays: 7
+
+  # ── EFS volume for Nakama modules ───────────────────────────────────────────
+  # In production, store the compiled JS module in S3 and use an init container
+  # to pull it. For simplicity, we bake the module into a custom Nakama image.
+  # (See nakama/Dockerfile.nakama)
+
+  # ── Nakama Task Definition ───────────────────────────────────────────────────
+  NakamaTaskDef:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family:                  !Sub "${ProjectName}-nakama"
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode:             awsvpc
+      Cpu:                     "512"
+      Memory:                  "1024"
+      ExecutionRoleArn:        !GetAtt ECSTaskExecutionRole.Arn
+      ContainerDefinitions:
+        - Name:  nakama
+          Image: !Ref NakamaImage
+          EntryPoint:
+            - "/bin/sh"
+            - "-ecx"
+          Command:
+            - !Sub |
+              /nakama/nakama migrate up \
+                --database.address nakama:${DBPassword}@${NakamaDB.Endpoint.Address}:5432/nakama &&
+              exec /nakama/nakama \
+                --name ${ProjectName} \
+                --database.address nakama:${DBPassword}@${NakamaDB.Endpoint.Address}:5432/nakama \
+                --runtime.js_entrypoint modules/tictactoe.js \
+                --socket.server_key ${NakamaServerKey} \
+                --logger.level WARN
+          PortMappings:
+            - {ContainerPort: 7349, Protocol: tcp}
+            - {ContainerPort: 7350, Protocol: tcp}
+            - {ContainerPort: 7351, Protocol: tcp}
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:         !Ref NakamaLogGroup
+              awslogs-region:        !Ref AWS::Region
+              awslogs-stream-prefix: nakama
+          Essential: true
+
+  # ── Frontend Task Definition ─────────────────────────────────────────────────
+  FrontendTaskDef:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family:                  !Sub "${ProjectName}-frontend"
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode:             awsvpc
+      Cpu:                     "256"
+      Memory:                  "512"
+      ExecutionRoleArn:        !GetAtt ECSTaskExecutionRole.Arn
+      ContainerDefinitions:
+        - Name:  frontend
+          Image: !Ref FrontendImage
+          PortMappings:
+            - {ContainerPort: 80, Protocol: tcp}
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:         !Ref FrontendLogGroup
+              awslogs-region:        !Ref AWS::Region
+              awslogs-stream-prefix: frontend
+          Essential: true
+
+  # ── Nakama ALB (port 7350) ───────────────────────────────────────────────────
+  NakamaALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name:    !Sub "${ProjectName}-nakama-alb"
+      Type:    application
+      Subnets: [!Ref PublicSubnetA, !Ref PublicSubnetB]
+      SecurityGroups: [!Ref ALBSecurityGroup]
+
+  NakamaTG:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name:             !Sub "${ProjectName}-nakama-tg"
+      Port:             7350
+      Protocol:         HTTP
+      VpcId:            !Ref VPC
+      TargetType:       ip
+      HealthCheckPath:  /healthcheck
+      HealthCheckPort:  "7350"
+
+  NakamaListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref NakamaALB
+      Port:            7350
+      Protocol:        HTTP
+      DefaultActions:
+        - Type:           forward
+          TargetGroupArn: !Ref NakamaTG
+
+  # ── Frontend ALB (port 80) ───────────────────────────────────────────────────
+  FrontendALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name:    !Sub "${ProjectName}-frontend-alb"
+      Type:    application
+      Subnets: [!Ref PublicSubnetA, !Ref PublicSubnetB]
+      SecurityGroups: [!Ref ALBSecurityGroup]
+
+  FrontendTG:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name:            !Sub "${ProjectName}-frontend-tg"
+      Port:            80
+      Protocol:        HTTP
+      VpcId:           !Ref VPC
+      TargetType:      ip
+      HealthCheckPath: /health
+
+  FrontendListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref FrontendALB
+      Port:            80
+      Protocol:        HTTP
+      DefaultActions:
+        - Type:           forward
+          TargetGroupArn: !Ref FrontendTG
+
+  # ── Nakama ECS Service ───────────────────────────────────────────────────────
+  NakamaService:
+    Type: AWS::ECS::Service
+    DependsOn: NakamaListener
+    Properties:
+      ServiceName:    !Ref NAKAMA_SERVICE
+      Cluster:        !Ref ECSCluster
+      TaskDefinition: !Ref NakamaTaskDef
+      DesiredCount:   1
+      LaunchType:     FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:         [!Ref PublicSubnetA, !Ref PublicSubnetB]
+          SecurityGroups:  [!Ref NakamaSecurityGroup]
+          AssignPublicIp:  ENABLED
+      LoadBalancers:
+        - ContainerName:    nakama
+          ContainerPort:    7350
+          TargetGroupArn:   !Ref NakamaTG
+
+  # ── Frontend ECS Service ─────────────────────────────────────────────────────
+  FrontendService:
+    Type: AWS::ECS::Service
+    DependsOn: FrontendListener
+    Properties:
+      ServiceName:    !Ref FRONTEND_SERVICE
+      Cluster:        !Ref ECSCluster
+      TaskDefinition: !Ref FrontendTaskDef
+      DesiredCount:   1
+      LaunchType:     FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:        [!Ref PublicSubnetA, !Ref PublicSubnetB]
+          SecurityGroups: [!Ref FrontendSecurityGroup]
+          AssignPublicIp: ENABLED
+      LoadBalancers:
+        - ContainerName:   frontend
+          ContainerPort:   80
+          TargetGroupArn:  !Ref FrontendTG
+
+# ─────────────────────────────────────────────────────────────────────────────
+Outputs:
+  NakamaEndpoint:
+    Description: Nakama API endpoint (use this in VITE_NAKAMA_HOST)
+    Value: !GetAtt NakamaALB.DNSName
+
+  FrontendURL:
+    Description: Public URL of the Tic-Tac-Toe game
+    Value: !Sub "http://${FrontendALB.DNSName}"
+
+  ECSCluster:
+    Description: ECS cluster name
+    Value: !Ref ECSCluster
