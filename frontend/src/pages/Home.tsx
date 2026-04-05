@@ -1,5 +1,5 @@
 // Home page – authentication + matchmaking / room creation
-import { useState } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { authenticate, getSession, nakamaClient, openSocket } from "../lib/nakama";
 import styles from "./Home.module.css";
@@ -96,7 +96,7 @@ export function Home() {
             placeholder="Username (optional)"
             maxLength={20}
             value={username}
-            onChange={e => setUsername(e.target.value)}
+            onChange={(e: { target: { value: any; }; }) => setUsername(e.target.value)}
             onKeyDown={e => e.key === "Enter" && handleLogin()}
           />
           <button className={styles.btn} onClick={handleLogin} disabled={loading}>

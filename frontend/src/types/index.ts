@@ -12,14 +12,15 @@ export interface PlayerInfo {
 
 /** Payload the server broadcasts every tick (OP_CODE_UPDATE = 1) */
 export interface ServerState {
-  board:       Board;
-  currentTurn: string;          // sessionId of player whose turn it is
-  phase:       Phase;
-  winner:      string | null;   // sessionId, "draw", or null
-  timedMode:   boolean;
-  turnStart:   number;          // epoch ms
-  turnTimeSec: number;
-  symbols:     Record<string, Symbol>;  // sessionId → symbol
+  board:         Board;
+  currentTurn:   string;          // sessionId of player whose turn it is
+  phase:         Phase;
+  winner:        string | null;   // sessionId, "draw", or null
+  timedMode:     boolean;
+  turnStart:     number;          // epoch ms
+  turnTimeSec:   number;
+  symbols:       Record<string, Symbol>;  // sessionId → symbol
+  rematchVotes:  string[];        // sessionIds that have voted for rematch
 }
 
 export interface LeaderboardEntry {

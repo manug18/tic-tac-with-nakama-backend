@@ -20,7 +20,7 @@ export function Game() {
   // timed mode can be passed as a URL query param ?timed=1, default classic
   const wantTimed = searchParams.get("timed") === "1";
 
-  const { gameState, mySessionId, mySymbol, sendMove, sendReady, error } = useGame(id);
+  const { gameState, mySessionId, mySymbol, sendMove, sendReady, sendRematch, error } = useGame(id);
   const countdown = useCountdown(gameState);
 
   // Auto-navigate if not authenticated
@@ -62,9 +62,11 @@ export function Game() {
     );
   }
 
-  const { board, currentTurn, phase, winner, timedMode, symbols } = gameState;
-  const isMyTurn    = currentTurn === mySessionId;
-  const playerCount = Object.keys(symbols ?? {}).length;
+  const { board, currentTurn, phase, winner, timedMode, symbols, rematchVotes } = gameState;
+  const isMyTurn       = currentTurn === mySessionId;
+  const playerCount    = Object.keys(symbols ?? {}).length;
+  const iHaveVoted     = (rematchVotes ?? []).includes(mySessionId);
+  const opponentVoted  = (rematchVotes ?? []).some(id => id !== mySessionId);
 
   // ── Lobby (waiting for second player) ──────────────────────────────────
   if (phase === "lobby") {
@@ -122,6 +124,15 @@ export function Game() {
       {phase === "finished" && (
         <div className={styles.result}>
           <p className={styles.resultText}>{resultText}</p>
+          <div className={styles.rematchRow}>
+            {iHaveVoted ? (
+              <p className={styles.waiting}>Waiting for opponent…</p>
+            ) : (
+              <button className={styles.playAgainBtn} onClick={sendRematch}>
+                {opponentVoted ? "Opponent wants to play again — Accept!" : "Play Again"}
+              </button>
+            )}
+          </div>
           <button className={styles.homeBtn} onClick={() => navigate("/")}>
             Back to Home
           </button>
