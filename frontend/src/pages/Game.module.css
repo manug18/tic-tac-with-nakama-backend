@@ -88,6 +88,30 @@
 
 .homeBtn:hover { opacity: 0.85; }
 
+.rematchRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+}
+
+.playAgainBtn {
+  padding: 12px 28px;
+  border: 2px solid #7c83fd;
+  border-radius: 10px;
+  background: transparent;
+  color: #7c83fd;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.playAgainBtn:hover {
+  background: #7c83fd;
+  color: #fff;
+}
+
 .waiting {
   font-size: 1.2rem;
   color: #888;

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MatchData } from "@heroiclabs/nakama-js";
 import { getSession, getSocket } from "../lib/nakama";
-import { OP_CODE_MOVE, OP_CODE_READY, OP_CODE_UPDATE } from "../lib/opcodes";
+import { OP_CODE_MOVE, OP_CODE_READY, OP_CODE_REMATCH, OP_CODE_UPDATE } from "../lib/opcodes";
 import type { ServerState } from "../types";
 
 interface UseGameReturn {
@@ -11,6 +11,7 @@ interface UseGameReturn {
   mySymbol:    string | null;
   sendMove:    (index: number) => void;
   sendReady:   (timed: boolean) => void;
+  sendRematch: () => void;
   error:       string | null;
 }
 
@@ -92,5 +93,11 @@ export function useGame(matchId: string): UseGameReturn {
     socket.sendMatchState(matchId, OP_CODE_READY, JSON.stringify({ timed }));
   }, [matchId]);
 
-  return { gameState, mySessionId, mySymbol, sendMove, sendReady, error };
+  const sendRematch = useCallback(() => {
+    const socket = getSocket();
+    if (!socket) return;
+    socket.sendMatchState(matchId, OP_CODE_REMATCH, JSON.stringify({}));
+  }, [matchId]);
+
+  return { gameState, mySessionId, mySymbol, sendMove, sendReady, sendRematch, error };
 }

@@ -16,25 +16,29 @@ const OP_CODE_UPDATE   = 1;   // server → client: full state snapshot
 const OP_CODE_MOVE     = 2;   // client → server: player makes a move
 const OP_CODE_READY    = 3;   // client → server: player ready (with mode flag)
 const OP_CODE_PING     = 4;   // client → server / server → client: keep-alive
+const OP_CODE_REMATCH  = 5;   // client → server: player wants to rematch
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const TICK_RATE        = 5;   // Hz – match loop frequency
-const TURN_TIME_SEC    = 30;  // timed-mode turn limit
-const LEADERBOARD_ID   = "global_wins";
+const TICK_RATE           = 5;    // Hz – match loop frequency
+const TURN_TIME_SEC       = 30;   // timed-mode turn limit
+const LEADERBOARD_ID      = "global_wins";
+const REMATCH_TIMEOUT_SEC = 60;   // seconds to wait for rematch votes before terminating
 
 // ─── Type helpers ────────────────────────────────────────────────────────────
 type Board = (string | null)[];   // 9-cell array, null | "X" | "O"
 
 interface MatchState {
-  players:      Record<string, string>;   // presenceId → symbol ("X"/"O")
-  board:        Board;
-  currentTurn:  string;                   // presenceId whose turn it is
-  phase:        "lobby" | "playing" | "finished";
-  winner:       string | null;            // presenceId, "draw", or null
-  timedMode:    boolean;
-  turnStart:    number;                   // epoch ms when current turn began
-  readyFlags:   Record<string, boolean>;
-  modeVotes:    Record<string, boolean>;  // presenceId → wants timed mode
+  players:        Record<string, string>;   // presenceId → symbol ("X"/"O")
+  board:          Board;
+  currentTurn:    string;                   // presenceId whose turn it is
+  phase:          "lobby" | "playing" | "finished";
+  winner:         string | null;            // presenceId, "draw", or null
+  timedMode:      boolean;
+  turnStart:      number;                   // epoch ms when current turn began
+  readyFlags:     Record<string, boolean>;
+  modeVotes:      Record<string, boolean>;  // presenceId → wants timed mode
+  rematchVotes:   Record<string, boolean>;  // presenceId → wants rematch
+  finishedAtTick: number;                   // tick when game ended (for timeout)
 }
 
 // ─── Win-condition check (pure function) ─────────────────────────────────────
@@ -80,15 +84,17 @@ var matchInitImpl: nkruntime.MatchInitFunction<MatchState> = (
   _ctx, _logger, _nk, params
 ) => {
   const state: MatchState = {
-    players:     {},
-    board:       Array(9).fill(null),
-    currentTurn: "",
-    phase:       "lobby",
-    winner:      null,
-    timedMode:   params?.["timed"] === "true",
-    turnStart:   0,
-    readyFlags:  {},
-    modeVotes:   {},
+    players:        {},
+    board:          Array(9).fill(null),
+    currentTurn:    "",
+    phase:          "lobby",
+    winner:         null,
+    timedMode:      params?.["timed"] === "true",
+    turnStart:      0,
+    readyFlags:     {},
+    modeVotes:      {},
+    rematchVotes:   {},
+    finishedAtTick: 0,
   };
   return { state, tickRate: TICK_RATE, label: JSON.stringify({ open: true, timed: state.timedMode }) };
 };
@@ -122,7 +128,7 @@ var matchJoinImpl: nkruntime.MatchJoinFunction<MatchState> = (
 };
 
 var matchLeaveImpl: nkruntime.MatchLeaveFunction<MatchState> = (
-  _ctx, logger, _nk, dispatcher, _tick, state, presences
+  ctx, logger, nk, dispatcher, _tick, state, presences
 ) => {
   for (const p of presences) {
     delete state.players[p.sessionId];
@@ -132,8 +138,14 @@ var matchLeaveImpl: nkruntime.MatchLeaveFunction<MatchState> = (
   if (state.phase === "playing" && Object.keys(state.players).length < 2) {
     // Remaining player wins by default
     const remainingId = Object.keys(state.players)[0] ?? null;
-    state.winner = remainingId ?? "draw";
-    state.phase  = "finished";
+    state.winner         = remainingId ?? "draw";
+    state.phase          = "finished";
+    state.finishedAtTick = 0;  // trigger immediate termination (opponent left)
+    _recordResult(ctx, logger, nk, state);
+  }
+  // If a player leaves during the finished/rematch phase, terminate immediately
+  if (state.phase === "finished" && Object.keys(state.players).length < 2) {
+    state.finishedAtTick = 0;
   }
   dispatcher.matchLabelUpdate(JSON.stringify({ open: true, timed: state.timedMode }));
   return { state };
@@ -193,17 +205,44 @@ var matchLoopImpl: nkruntime.MatchLoopFunction<MatchState> = (
         const winSymbol = checkWinner(state.board);
         if (winSymbol) {
           // Map winning symbol back to presenceId
-          state.winner = Object.entries(state.players).find(([, s]) => s === winSymbol)?.[0] ?? null;
-          state.phase  = "finished";
+          state.winner         = Object.entries(state.players).find(([, s]) => s === winSymbol)?.[0] ?? null;
+          state.phase          = "finished";
+          state.finishedAtTick = tick;
           _recordResult(ctx, logger, nk, state);
         } else if (isDraw(state.board)) {
-          state.winner = "draw";
-          state.phase  = "finished";
+          state.winner         = "draw";
+          state.phase          = "finished";
+          state.finishedAtTick = tick;
           _recordResult(ctx, logger, nk, state);
         } else {
           // Swap turn
           state.currentTurn = allPresences.find(id => id !== senderId) ?? senderId;
           state.turnStart   = Date.now();
+        }
+        break;
+      }
+
+      // ── REMATCH ──────────────────────────────────────────────────────────
+      case OP_CODE_REMATCH: {
+        if (state.phase !== "finished") break;
+        state.rematchVotes[senderId] = true;
+
+        const votedIds = Object.keys(state.rematchVotes).filter(id => state.rematchVotes[id]);
+        if (votedIds.length === 2 && allPresences.length === 2) {
+          // Swap symbols for fairness, then restart immediately
+          for (const id of Object.keys(state.players)) {
+            state.players[id] = state.players[id] === "X" ? "O" : "X";
+          }
+          state.board          = Array(9).fill(null);
+          state.winner         = null;
+          state.currentTurn    = allPresences[Math.floor(Math.random() * 2)];
+          state.turnStart      = Date.now();
+          state.phase          = "playing";
+          state.rematchVotes   = {};
+          state.finishedAtTick = 0;
+          state.readyFlags     = {};
+          dispatcher.matchLabelUpdate(JSON.stringify({ open: false, timed: state.timedMode }));
+          logger.info("Rematch started!");
         }
         break;
       }
@@ -221,8 +260,9 @@ var matchLoopImpl: nkruntime.MatchLoopFunction<MatchState> = (
     if (elapsed >= TURN_TIME_SEC) {
       // Current player forfeits – opponent wins
       const opponent = allPresences.find(id => id !== state.currentTurn);
-      state.winner = opponent ?? "draw";
-      state.phase  = "finished";
+      state.winner         = opponent ?? "draw";
+      state.phase          = "finished";
+      state.finishedAtTick = tick;
       logger.info(`Player ${state.currentTurn} timed out. Winner: ${state.winner}`);
       _recordResult(ctx, logger, nk, state);
     }
@@ -233,15 +273,16 @@ var matchLoopImpl: nkruntime.MatchLoopFunction<MatchState> = (
     // We need actual Presence objects; reconstruct minimal payload instead
     try {
       const payload = JSON.stringify({
-        board:       state.board,
-        currentTurn: state.currentTurn,
-        phase:       state.phase,
-        winner:      state.winner,
-        timedMode:   state.timedMode,
-        turnStart:   state.turnStart,
-        turnTimeSec: TURN_TIME_SEC,
+        board:        state.board,
+        currentTurn:  state.currentTurn,
+        phase:        state.phase,
+        winner:       state.winner,
+        timedMode:    state.timedMode,
+        turnStart:    state.turnStart,
+        turnTimeSec:  TURN_TIME_SEC,
         // Symbol map keyed by sessionId so the client can identify themselves
-        symbols:     state.players,
+        symbols:      state.players,
+        rematchVotes: Object.keys(state.rematchVotes).filter(id => state.rematchVotes[id]),
       });
       dispatcher.broadcastMessage(OP_CODE_UPDATE, payload, null);
     } catch (e) {
@@ -249,9 +290,12 @@ var matchLoopImpl: nkruntime.MatchLoopFunction<MatchState> = (
     }
   }
 
-  // Terminate finished matches after a grace period (1 tick)
-  if (state.phase === "finished" && tick > 1) {
-    return null;  // signals Nakama to terminate the match
+  // Terminate finished matches after rematch timeout (or if only 1 player left)
+  if (state.phase === "finished") {
+    if (allPresences.length < 2) return null;
+    if (state.finishedAtTick > 0 && (tick - state.finishedAtTick) > REMATCH_TIMEOUT_SEC * TICK_RATE) {
+      return null;
+    }
   }
 
   return { state };
@@ -332,7 +376,7 @@ var rpcGetLeaderboard: nkruntime.RpcFunction = (
     rank:     r.rank,
     userId:   r.ownerId,
     username: r.username,
-    wins:     r.subscore,
+    wins:     r.score,
   }));
   return JSON.stringify({ records });
 };
