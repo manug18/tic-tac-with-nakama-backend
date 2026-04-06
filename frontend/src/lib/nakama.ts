@@ -29,7 +29,16 @@ export async function authenticate(username?: string): Promise<Session> {
   // Use a stable device-id stored in localStorage
   let deviceId = localStorage.getItem("device_id");
   if (!deviceId) {
-    deviceId = crypto.randomUUID();
+    // crypto.randomUUID is only available in secure contexts (HTTPS/localhost)
+    // Fall back to a manual UUID v4 for HTTP deployments
+    if (typeof crypto.randomUUID === "function") {
+      deviceId = crypto.randomUUID();
+    } else {
+      deviceId = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+        const r = (Math.random() * 16) | 0;
+        return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+      });
+    }
     localStorage.setItem("device_id", deviceId);
   }
 
