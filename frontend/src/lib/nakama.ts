@@ -18,11 +18,17 @@ export function getSocket():  Socket  | null { return _socket;  }
 export async function authenticate(username?: string): Promise<Session> {
   // Reuse stored session if still valid (>5 min remaining)
   const stored = localStorage.getItem("nakama_token");
+  const storedRefresh = localStorage.getItem("nakama_refresh_token");
   if (stored) {
-    const s = Session.restore(stored);
-    if (!s.isexpired(Date.now() / 1000 + 300)) {
-      _session = s;
-      return s;
+    try {
+      const s = Session.restore(stored, storedRefresh ?? "");
+      if (!s.isexpired(Date.now() / 1000 + 300)) {
+        _session = s;
+        return s;
+      }
+    } catch {
+      localStorage.removeItem("nakama_token");
+      localStorage.removeItem("nakama_refresh_token");
     }
   }
 
@@ -49,6 +55,9 @@ export async function authenticate(username?: string): Promise<Session> {
   );
 
   localStorage.setItem("nakama_token", session.token);
+  if (session.refresh_token) {
+    localStorage.setItem("nakama_refresh_token", session.refresh_token);
+  }
   _session = session;
   return session;
 }
