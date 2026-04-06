@@ -8,7 +8,6 @@ import type { ServerState } from "../types";
 interface UseGameReturn {
   gameState:   ServerState | null;
   mySessionId: string;
-  mySymbol:    string | null;
   sendMove:    (index: number) => void;
   sendReady:   (timed: boolean) => void;
   sendRematch: () => void;
@@ -19,7 +18,6 @@ export function useGame(matchId: string): UseGameReturn {
   const [gameState,   setGameState]   = useState<ServerState | null>(null);
   const [error,       setError]       = useState<string | null>(null);
   const [mySessionId, setMySessionId] = useState<string>("");
-  const [mySymbol,    setMySymbol]    = useState<string | null>(null);
 
   // Keep a ref to the latest game state for use in closures
   const stateRef = useRef<ServerState | null>(null);
@@ -49,11 +47,25 @@ export function useGame(matchId: string): UseGameReturn {
           } else {
             raw = String(data.data);
           }
-          const state: ServerState = JSON.parse(raw);
-          setGameState(state);
-          if (sidRef.current && state.symbols) {
-            setMySymbol(state.symbols[sidRef.current] ?? null);
-          }
+          const next: ServerState = JSON.parse(raw);
+          // Skip re-render when only the turn timer timestamp changed
+          // (useCountdown has its own interval for smooth countdown)
+          setGameState(prev => {
+            if (
+              prev &&
+              prev.phase       === next.phase &&
+              prev.currentTurn === next.currentTurn &&
+              prev.winner      === next.winner &&
+              prev.timedMode   === next.timedMode &&
+              prev.turnStart   === next.turnStart &&
+              JSON.stringify(prev.board)        === JSON.stringify(next.board) &&
+              JSON.stringify(prev.rematchVotes) === JSON.stringify(next.rematchVotes) &&
+              JSON.stringify(prev.symbols)      === JSON.stringify(next.symbols)
+            ) {
+              return prev;   // nothing meaningful changed – skip re-render
+            }
+            return next;
+          });
         } catch (e) {
           console.error("Failed to parse server state", e);
         }
@@ -99,5 +111,5 @@ export function useGame(matchId: string): UseGameReturn {
     socket.sendMatchState(matchId, OP_CODE_REMATCH, JSON.stringify({}));
   }, [matchId]);
 
-  return { gameState, mySessionId, mySymbol, sendMove, sendReady, sendRematch, error };
+  return { gameState, mySessionId, sendMove, sendReady, sendRematch, error };
 }

@@ -1,5 +1,5 @@
 // Game page – the active match view
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Board }        from "../components/Board";
 import { Timer }        from "../components/Timer";
@@ -13,21 +13,40 @@ export function Game() {
   const { matchId }     = useParams<{ matchId: string }>();
   const [searchParams]  = useSearchParams();
   const navigate        = useNavigate();
-  const [sentReady, setSentReady]               = useState(false);
-  const [copied,    setCopied]                   = useState(false);
-  const [postGameLB, setPostGameLB]              = useState<LeaderboardEntry[]>([]);
+  const [sentReady,   setSentReady]               = useState(false);
+  const [sentRematch, setSentRematch]              = useState(false);
+  const [copied,      setCopied]                   = useState(false);
+  const [postGameLB,  setPostGameLB]               = useState<LeaderboardEntry[]>([]);
 
   const id = matchId ?? "";
   // timed mode can be passed as a URL query param ?timed=1, default classic
   const wantTimed = searchParams.get("timed") === "1";
 
-  const { gameState, mySessionId, mySymbol, sendMove, sendReady, sendRematch, error } = useGame(id);
+  const { gameState, mySessionId, sendMove, sendReady, sendRematch, error } = useGame(id);
   const countdown = useCountdown(gameState);
+
+  // Derive mySymbol directly from gameState (no separate state = no extra renders)
+  const mySymbol = gameState?.symbols?.[mySessionId] ?? null;
 
   // Auto-navigate if not authenticated
   useEffect(() => {
     if (!getSession()) navigate("/");
   }, [navigate]);
+
+  // ── Reset ready/rematch flags when game restarts after rematch ──────────────
+  const prevPhaseRef = useRef<string>("");
+  useEffect(() => {
+    if (!gameState) return;
+    const prev = prevPhaseRef.current;
+    const curr = gameState.phase;
+    // finished → playing means rematch started – reset both flags
+    if (prev === "finished" && curr === "playing") {
+      setSentReady(false);
+      setSentRematch(false);
+      setPostGameLB([]);
+    }
+    prevPhaseRef.current = curr;
+  }, [gameState?.phase]);
 
   // ── Fetch leaderboard when game finishes ────────────────────────────────
   useEffect(() => {
@@ -78,10 +97,15 @@ export function Game() {
   }
 
   const { board, currentTurn, phase, winner, timedMode, symbols, rematchVotes } = gameState;
-  const isMyTurn       = currentTurn === mySessionId;
-  const playerCount    = Object.keys(symbols ?? {}).length;
-  const iHaveVoted     = (rematchVotes ?? []).includes(mySessionId);
-  const opponentVoted  = (rematchVotes ?? []).some(id => id !== mySessionId);
+  const isMyTurn      = currentTurn === mySessionId;
+  const playerCount   = Object.keys(symbols ?? {}).length;
+  const iHaveVoted    = (rematchVotes ?? []).includes(mySessionId);
+  const opponentVoted = (rematchVotes ?? []).some(id => id !== mySessionId);
+
+  // Stable player info: X always first, then O
+  const playerInfos = Object.entries(symbols)
+    .sort(([, a], [, b]) => a.localeCompare(b))
+    .map(([sid, sym]) => ({ sid, sym, isMe: sid === mySessionId }));
 
   // ── Lobby (waiting for second player) ──────────────────────────────────
   if (phase === "lobby") {
@@ -115,25 +139,25 @@ export function Game() {
     <div className={styles.container}>
       <h1 className={styles.heading}>Tic-Tac-Toe</h1>
 
-      {/* Player symbols */}
+      {/* Player symbols – stable, shown once */}
       <div className={styles.symbolRow}>
-        {Object.entries(symbols).map(([sid, sym]) => (
+        {playerInfos.map(({ sid, sym, isMe }) => (
           <span key={sid} className={`${styles.symbol} ${styles[(sym as Symbol).toLowerCase() as "x" | "o"]}`}>
-            {sym} {sid === mySessionId ? "(you)" : "(opponent)"}
+            {sym} <span className={styles.playerLabel}>({isMe ? "you" : "opp"})</span>
           </span>
         ))}
       </div>
 
-      {/* Timer – only in timed mode */}
-      {timedMode && phase === "playing" && (
-        <Timer seconds={countdown} isMyTurn={isMyTurn} />
-      )}
-
-      {/* Status */}
-      {phase === "playing" && (
-        <p className={`${styles.status} ${isMyTurn ? styles.myTurn : ""}`}>
+      {/* Whose turn – only shown during play, no blinking */}
+      {phase === "playing" && !timedMode && (
+        <p className={styles.turnBadge}>
           {isMyTurn ? "Your turn" : "Opponent's turn"}
         </p>
+      )}
+
+      {/* Timer – timed mode replaces the turn badge */}
+      {timedMode && phase === "playing" && (
+        <Timer seconds={countdown} isMyTurn={isMyTurn} />
       )}
 
       {/* Result */}
@@ -167,10 +191,13 @@ export function Game() {
           )}
 
           <div className={styles.rematchRow}>
-            {iHaveVoted ? (
+            {iHaveVoted || sentRematch ? (
               <p className={styles.waiting}>Waiting for opponent…</p>
             ) : (
-              <button className={styles.playAgainBtn} onClick={sendRematch}>
+              <button className={styles.playAgainBtn} onClick={() => {
+                setSentRematch(true);
+                sendRematch();
+              }}>
                 {opponentVoted ? "Opponent wants to play again — Accept!" : "Play Again"}
               </button>
             )}

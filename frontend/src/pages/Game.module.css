@@ -49,6 +49,24 @@
 .symbol.x { color: #e94560; }
 .symbol.o { color: #53c0f0; }
 
+.playerLabel {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: #888;
+  margin-left: 2px;
+}
+
+.turnBadge {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #7c83fd;
+  background: rgba(124, 131, 253, 0.12);
+  border: 1px solid rgba(124, 131, 253, 0.3);
+  border-radius: 20px;
+  padding: 6px 18px;
+  margin: 0;
+}
+
 .status {
   font-size: 1rem;
   color: #888;
