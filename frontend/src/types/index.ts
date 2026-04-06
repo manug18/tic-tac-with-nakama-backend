@@ -27,5 +27,8 @@ export interface LeaderboardEntry {
   rank:     number;
   userId:   string;
   username: string;
+  score:    number;
   wins:     number;
+  losses:   number;
+  draws:    number;
 }

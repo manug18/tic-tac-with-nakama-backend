@@ -21,7 +21,12 @@ const OP_CODE_REMATCH  = 5;   // client → server: player wants to rematch
 // ─── Constants ───────────────────────────────────────────────────────────────
 const TICK_RATE           = 5;    // Hz – match loop frequency
 const TURN_TIME_SEC       = 30;   // timed-mode turn limit
-const LEADERBOARD_ID      = "global_wins";
+const LEADERBOARD_ID      = "global_points";  // primary – sorted by total score
+const LEADERBOARD_WINS    = "global_wins";    // win count per player
+const LEADERBOARD_LOSSES  = "global_losses";  // loss count per player
+const LEADERBOARD_DRAWS   = "global_draws";   // draw count per player
+const WIN_POINTS          = 200;
+const DRAW_POINTS         = 50;
 const REMATCH_TIMEOUT_SEC = 60;   // seconds to wait for rematch votes before terminating
 
 // ─── Type helpers ────────────────────────────────────────────────────────────
@@ -29,6 +34,8 @@ type Board = (string | null)[];   // 9-cell array, null | "X" | "O"
 
 interface MatchState {
   players:        Record<string, string>;   // presenceId → symbol ("X"/"O")
+  userIds:        Record<string, string>;   // presenceId → userId
+  userNames:      Record<string, string>;   // presenceId → username
   board:          Board;
   currentTurn:    string;                   // presenceId whose turn it is
   phase:          "lobby" | "playing" | "finished";
@@ -85,6 +92,8 @@ var matchInitImpl: nkruntime.MatchInitFunction<MatchState> = (
 ) => {
   const state: MatchState = {
     players:        {},
+    userIds:        {},
+    userNames:      {},
     board:          Array(9).fill(null),
     currentTurn:    "",
     phase:          "lobby",
@@ -117,7 +126,9 @@ var matchJoinImpl: nkruntime.MatchJoinFunction<MatchState> = (
 ) => {
   for (const p of presences) {
     const symbol = Object.keys(state.players).length === 0 ? "X" : "O";
-    state.players[p.sessionId] = symbol;
+    state.players[p.sessionId]   = symbol;
+    state.userIds[p.sessionId]   = p.userId;
+    state.userNames[p.sessionId] = p.username;
     state.readyFlags[p.sessionId] = false;
     logger.info(`Player ${p.username} joined as ${symbol}`);
   }
@@ -132,6 +143,8 @@ var matchLeaveImpl: nkruntime.MatchLeaveFunction<MatchState> = (
 ) => {
   for (const p of presences) {
     delete state.players[p.sessionId];
+    delete state.userIds[p.sessionId];
+    delete state.userNames[p.sessionId];
     delete state.readyFlags[p.sessionId];
     logger.info(`Player ${p.userId} left`);
   }
@@ -316,25 +329,39 @@ var matchSignalImpl: nkruntime.MatchSignalFunction<MatchState> = (
 
 // ─── Leaderboard helper ───────────────────────────────────────────────────────
 function _recordResult(
-  ctx: nkruntime.Context,
+  _ctx: nkruntime.Context,
   logger: nkruntime.Logger,
   nk: nkruntime.Nakama,
   state: MatchState,
 ) {
-  if (state.winner === "draw") return;
-  const winnerId = state.winner!;
-  const loserId  = Object.keys(state.players).find(id => id !== winnerId);
-  if (!winnerId || !loserId) return;
+  const playerSids = Object.keys(state.players);
+
+  if (state.winner === "draw") {
+    // Both players get draw points and a draw count
+    for (const sid of playerSids) {
+      const uid   = state.userIds[sid]   ?? sid;
+      const uname = state.userNames[sid] ?? "";
+      try {
+        nk.leaderboardRecordWrite(LEADERBOARD_ID,    uid, uname, DRAW_POINTS, 0, 2);
+        nk.leaderboardRecordWrite(LEADERBOARD_DRAWS, uid, uname, 1,           0, 2);
+      } catch (e) { logger.error("Leaderboard draw write failed: " + e); }
+    }
+    return;
+  }
+
+  const winnerSid = state.winner!;
+  const loserSid  = playerSids.find(id => id !== winnerSid);
+  if (!winnerSid || !loserSid) return;
+
+  const winnerUid   = state.userIds[winnerSid]   ?? winnerSid;
+  const winnerUname = state.userNames[winnerSid] ?? "";
+  const loserUid    = state.userIds[loserSid]    ?? loserSid;
+  const loserUname  = state.userNames[loserSid]  ?? "";
 
   try {
-    nk.leaderboardRecordWrite(
-      LEADERBOARD_ID,
-      winnerId,
-      "",   // username will resolve server-side
-      1,    // subscore increment
-      undefined,
-      2,    // nkruntime.Operator.INCREMENTAL
-    );
+    nk.leaderboardRecordWrite(LEADERBOARD_ID,     winnerUid,  winnerUname, WIN_POINTS, 0, 2);
+    nk.leaderboardRecordWrite(LEADERBOARD_WINS,   winnerUid,  winnerUname, 1,          0, 2);
+    nk.leaderboardRecordWrite(LEADERBOARD_LOSSES, loserUid,   loserUname,  1,          0, 2);
   } catch (e) {
     logger.error("Leaderboard write failed: " + e);
   }
@@ -372,11 +399,29 @@ var rpcGetLeaderboard: nkruntime.RpcFunction = (
   _ctx, _logger, nk
 ): string => {
   const result = nk.leaderboardRecordsList(LEADERBOARD_ID, [], 10, undefined, 0);
+  const topIds = result.records.map(r => r.ownerId);
+
+  let winMap:  Record<string, number> = {};
+  let lossMap: Record<string, number> = {};
+  let drawMap: Record<string, number> = {};
+
+  if (topIds.length > 0) {
+    const winRes  = nk.leaderboardRecordsList(LEADERBOARD_WINS,   topIds, topIds.length, undefined, 0);
+    const lossRes = nk.leaderboardRecordsList(LEADERBOARD_LOSSES, topIds, topIds.length, undefined, 0);
+    const drawRes = nk.leaderboardRecordsList(LEADERBOARD_DRAWS,  topIds, topIds.length, undefined, 0);
+    for (const r of winRes.ownerRecords)  winMap[r.ownerId]  = r.score;
+    for (const r of lossRes.ownerRecords) lossMap[r.ownerId] = r.score;
+    for (const r of drawRes.ownerRecords) drawMap[r.ownerId] = r.score;
+  }
+
   const records = result.records.map(r => ({
     rank:     r.rank,
     userId:   r.ownerId,
     username: r.username,
-    wins:     r.score,
+    score:    r.score,
+    wins:     winMap[r.ownerId]  ?? 0,
+    losses:   lossMap[r.ownerId] ?? 0,
+    draws:    drawMap[r.ownerId] ?? 0,
   }));
   return JSON.stringify({ records });
 };
@@ -388,17 +433,20 @@ function InitModule(
   nk: nkruntime.Nakama,
   initializer: nkruntime.Initializer,
 ) {
-  // Create the leaderboard (idempotent)
-  try {
-    nk.leaderboardCreate(
-      LEADERBOARD_ID,
-      false,             // non-authoritative (server writes directly)
-      1,                 // nkruntime.SortOrder.DESCENDING
-      2,                 // nkruntime.Operator.INCREMENTAL
-      null,              // nkruntime.ResetSchedule.NEVER
-      null,
-    );
-  } catch { /* already exists */ }
+  // Create leaderboards (idempotent)
+  const lbIds = [LEADERBOARD_ID, LEADERBOARD_WINS, LEADERBOARD_LOSSES, LEADERBOARD_DRAWS];
+  for (const id of lbIds) {
+    try {
+      nk.leaderboardCreate(
+        id,
+        false,   // non-authoritative
+        1,       // nkruntime.SortOrder.DESCENDING
+        2,       // nkruntime.Operator.INCREMENTAL
+        null,    // nkruntime.ResetSchedule.NEVER
+        null,
+      );
+    } catch { /* already exists */ }
+  }
 
   initializer.registerMatch<MatchState>("tictactoe", {
     matchInit:        matchInitImpl,

@@ -74,6 +74,57 @@
   color: #ffd700;
 }
 
+.points {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #4cdb8a;
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+
+.miniLeaderboard {
+  background: #16213e;
+  border: 1px solid #2a2a4a;
+  border-radius: 12px;
+  padding: 12px 16px;
+  width: 100%;
+  max-width: 380px;
+}
+
+.miniLbTitle {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #7c83fd;
+  margin: 0 0 10px;
+}
+
+.miniLbTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.miniLbTable th,
+.miniLbTable td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid #1a1a30;
+}
+
+.miniLbTable th {
+  color: #555;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.miniLbMe {
+  color: #7c83fd;
+  font-weight: 700;
+}
+
 .homeBtn {
   padding: 12px 28px;
   border: none;

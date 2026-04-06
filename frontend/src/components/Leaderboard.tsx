@@ -18,7 +18,8 @@ export function Leaderboard({ entries, myUserId }: Props) {
             <tr>
               <th>#</th>
               <th>Player</th>
-              <th>Wins</th>
+              <th>W / L / D</th>
+              <th>Score</th>
             </tr>
           </thead>
           <tbody>
@@ -26,7 +27,8 @@ export function Leaderboard({ entries, myUserId }: Props) {
               <tr key={e.userId} className={e.userId === myUserId ? styles.me : ""}>
                 <td>{e.rank}</td>
                 <td>{e.username || e.userId.slice(0, 8)}</td>
-                <td>{e.wins}</td>
+                <td>{e.wins} / {e.losses} / {e.draws}</td>
+                <td>{e.score}</td>
               </tr>
             ))}
           </tbody>
