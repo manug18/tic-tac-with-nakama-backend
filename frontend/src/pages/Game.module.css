@@ -67,6 +67,31 @@
   margin: 0;
 }
 
+.timedBadge {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #e94560;
+  background: rgba(233, 69, 96, 0.1);
+  border: 1px solid rgba(233, 69, 96, 0.3);
+  border-radius: 20px;
+  padding: 4px 14px;
+  margin: 0;
+  letter-spacing: 0.03em;
+}
+
+.readyBtn {
+  padding: 14px 40px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #7c83fd, #e94560);
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+.readyBtn:hover { opacity: 0.85; transform: scale(1.03); }
+
 .status {
   font-size: 1rem;
   color: #888;

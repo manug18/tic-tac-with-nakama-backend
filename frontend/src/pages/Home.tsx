@@ -61,9 +61,9 @@ export function Home() {
     try {
       const session = getSession()!;
       await openSocket(session);
-      const result = await nakamaClient.rpc(session, "create_match", JSON.stringify({ timed: timedMode }));
+      const result = await nakamaClient.rpc(session, "create_match", { timed: timedMode });
       const { matchId } = result.payload as { matchId: string };
-      navigate(`/game/${matchId}`);
+      navigate(`/game/${matchId}${timedMode ? "?timed=1" : ""}`);
     } catch (e: unknown) {
       setError((e as Error).message ?? "Failed to create room");
     } finally {

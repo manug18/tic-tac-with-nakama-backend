@@ -54,7 +54,7 @@ export function Game() {
     const session = getSession();
     if (!session) return;
     nakamaClient
-      .rpc(session, "get_leaderboard", "{}")
+      .rpc(session, "get_leaderboard", {})
       .then(res => {
         const { records } = res.payload as { records: LeaderboardEntry[] };
         setPostGameLB(records?.slice(0, 5) ?? []);
@@ -67,10 +67,10 @@ export function Game() {
     if (sentReady || !gameState || gameState.phase !== "lobby") return;
     const playerCount = Object.keys(gameState.symbols ?? {}).length;
     if (playerCount >= 2) {
-      sendReady(wantTimed);
+      sendReady(false);   // mode is fixed server-side by the room creator
       setSentReady(true);
     }
-  }, [gameState, sentReady, wantTimed, sendReady]);
+  }, [gameState, sentReady, sendReady]);
 
   function copyRoomId() {
     navigator.clipboard.writeText(id).then(() => {
@@ -107,12 +107,15 @@ export function Game() {
     .sort(([, a], [, b]) => a.localeCompare(b))
     .map(([sid, sym]) => ({ sid, sym, isMe: sid === mySessionId }));
 
-  // ── Lobby (waiting for second player) ──────────────────────────────────
+  // ── Lobby (waiting for second player or both to ready up) ─────────────
   if (phase === "lobby") {
     return (
       <div className={styles.center}>
+        {gameState.timedMode && (
+          <p className={styles.timedBadge}>⏱ Timed Mode – 30s per turn</p>
+        )}
         <p className={styles.waiting}>
-          {playerCount < 2 ? "Waiting for opponent…" : "Starting…"}
+          {playerCount < 2 ? "Waiting for opponent…" : sentReady ? "Waiting for opponent to ready up…" : "Opponent joined!"}
         </p>
         <div className={styles.roomBox}>
           <span className={styles.roomLabel}>Room ID</span>
@@ -121,7 +124,15 @@ export function Game() {
             {copied ? "Copied!" : "Copy"}
           </button>
         </div>
-        <p className={styles.hint}>Share the Room ID with your opponent</p>
+        {playerCount >= 2 && !sentReady && (
+          <button className={styles.readyBtn} onClick={() => {
+            sendReady(false);
+            setSentReady(true);
+          }}>
+            Ready!
+          </button>
+        )}
+        {playerCount < 2 && <p className={styles.hint}>Share the Room ID with your opponent</p>}
       </div>
     );
   }
@@ -148,6 +159,11 @@ export function Game() {
         ))}
       </div>
 
+      {/* Timed mode badge */}
+      {timedMode && (
+        <p className={styles.timedBadge}>⏱ Timed Mode</p>
+      )}
+
       {/* Whose turn – only shown during play, no blinking */}
       {phase === "playing" && !timedMode && (
         <p className={styles.turnBadge}>
@@ -155,7 +171,7 @@ export function Game() {
         </p>
       )}
 
-      {/* Timer – timed mode replaces the turn badge */}
+      {/* Timer – timed mode: large countdown */}
       {timedMode && phase === "playing" && (
         <Timer seconds={countdown} isMyTurn={isMyTurn} />
       )}

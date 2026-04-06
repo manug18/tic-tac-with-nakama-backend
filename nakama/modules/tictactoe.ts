@@ -175,20 +175,15 @@ var matchLoopImpl: nkruntime.MatchLoopFunction<MatchState> = (
 
     switch (msg.opCode) {
 
-      // ── READY / mode-vote ────────────────────────────────────────────────
+      // ── READY ────────────────────────────────────────────────────────────
       case OP_CODE_READY: {
         if (state.phase !== "lobby") break;
-        let data: { timed?: boolean } = {};
-        try { data = JSON.parse(nk.binaryToString(msg.data)); } catch {}
         state.readyFlags[senderId] = true;
-        if (data.timed !== undefined) state.modeVotes[senderId] = !!data.timed;
 
         const readyCount = Object.values(state.readyFlags).filter(Boolean).length;
         if (readyCount === 2 && allPresences.length === 2) {
-          // Both players must vote timed for timed mode
-          state.timedMode = Object.values(state.modeVotes).every(Boolean);
-          state.phase      = "playing";
-          // Randomly pick who goes first
+          // timedMode is fixed at match creation by the room creator – don't override
+          state.phase       = "playing";
           state.currentTurn = allPresences[Math.floor(Math.random() * 2)];
           state.turnStart   = Date.now();
           dispatcher.matchLabelUpdate(JSON.stringify({ open: false, timed: state.timedMode }));
