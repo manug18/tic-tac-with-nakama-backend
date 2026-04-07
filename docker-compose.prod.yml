@@ -1,0 +1,68 @@
+# Production stack – uses built nginx image instead of Vite dev server.
+# Nakama API + WebSocket are proxied through nginx on port 80.
+# All secrets come from .env (see .env.example).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       nakama
+      POSTGRES_USER:     nakama
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nakama -d nakama"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  nakama:
+    image: heroiclabs/nakama:3.22.0
+    platform: linux/amd64
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint:
+      - "/bin/sh"
+      - "-ecx"
+      - |
+        /nakama/nakama migrate up \
+          --database.address nakama:${POSTGRES_PASSWORD}@postgres:5432/nakama &&
+        exec /nakama/nakama \
+          --name tictactoe-nakama \
+          --database.address nakama:${POSTGRES_PASSWORD}@postgres:5432/nakama \
+          --runtime.js_entrypoint "tictactoe.js" \
+          --socket.server_key "${NAKAMA_SERVER_KEY}" \
+          --console.username admin \
+          --console.password "${NAKAMA_CONSOLE_PASSWORD}" \
+          --logger.level WARN
+    ports:
+      - "7349:7349"   # Nakama console
+      - "7351:7351"   # gRPC
+    expose:
+      - "7350"        # internal only – nginx proxies /v2/ and /ws
+    volumes:
+      - ./nakama/data:/nakama/data
+    environment:
+      NAKAMA_RUNTIME_JS_ENTRYPOINT: tictactoe.js
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_NAKAMA_HOST: ${EC2_HOST}
+        VITE_NAKAMA_PORT: "80"
+        VITE_NAKAMA_USE_SSL: "false"
+        VITE_NAKAMA_SERVER_KEY: ${NAKAMA_SERVER_KEY}
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - nakama
+
+volumes:
+  postgres_data:
