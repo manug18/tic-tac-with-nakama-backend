@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # ─── PostgreSQL (Nakama's storage backend) ─────────────────────────────────
   postgres:
@@ -8,7 +6,7 @@ services:
     environment:
       POSTGRES_DB:       nakama
       POSTGRES_USER:     nakama
-      POSTGRES_PASSWORD: localpassword
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -30,14 +28,14 @@ services:
       - "-ecx"
       - |
         /nakama/nakama migrate up \
-          --database.address nakama:localpassword@postgres:5432/nakama &&
+          --database.address nakama:${POSTGRES_PASSWORD}@postgres:5432/nakama &&
         exec /nakama/nakama \
           --name tictactoe-nakama \
-          --database.address nakama:localpassword@postgres:5432/nakama \
+          --database.address nakama:${POSTGRES_PASSWORD}@postgres:5432/nakama \
           --runtime.js_entrypoint "tictactoe.js" \
-          --socket.server_key "defaultsocketkey" \
+          --socket.server_key "${NAKAMA_SERVER_KEY}" \
           --console.username admin \
-          --console.password adminpassword \
+          --console.password "${NAKAMA_CONSOLE_PASSWORD}" \
           --logger.level DEBUG
     ports:
       - "7349:7349"   # console
@@ -63,7 +61,7 @@ services:
       VITE_NAKAMA_HOST:       localhost
       VITE_NAKAMA_PORT:       "7350"
       VITE_NAKAMA_USE_SSL:    "false"
-      VITE_NAKAMA_SERVER_KEY: defaultsocketkey
+      VITE_NAKAMA_SERVER_KEY: ${NAKAMA_SERVER_KEY}
 
 volumes:
   postgres_data:

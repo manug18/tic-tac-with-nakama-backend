@@ -6,9 +6,14 @@ npm-debug.log*
 nakama/data/modules/*.js
 frontend/dist/
 
-# Environment files (contain secrets)
+# Environment files (contain secrets) – NEVER commit these
+.env
 frontend/.env.local
 frontend/.env.production
+
+# SSH keys / certificates
+*.pem
+*.key
 
 # IDE
 .DS_Store
